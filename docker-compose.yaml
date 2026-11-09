@@ -1,0 +1,55 @@
+services:
+  zipkin:
+    container_name: zipkin
+    image: openzipkin/zipkin:latest
+    restart: always
+    ports:
+      - "9411:9411"
+
+  otel-collector:
+    container_name: otel-collector
+    # Versao fixa: o exporter zipkin sai desta imagem na v0.167.0
+    image: otel/opentelemetry-collector:0.165.0
+    restart: always
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+    depends_on:
+      - zipkin
+
+  servico-a:
+    container_name: servico-a
+    build:
+      context: .
+      args:
+        - SERVICO=servico-a
+    environment:
+      - SERVICO_B_URL=http://servico-b:8181
+      - OTEL_SERVICE_NAME=servico-a
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - HTTP_PORT=:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - otel-collector
+      - servico-b
+
+  servico-b:
+    container_name: servico-b
+    build:
+      context: .
+      args:
+        - SERVICO=servico-b
+    environment:
+      - VIACEP_URL=https://viacep.com.br/ws/
+      - WEATHER_API_URL=https://api.weatherapi.com/v1/current.json
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+      - OTEL_SERVICE_NAME=servico-b
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - HTTP_PORT=:8181
+    ports:
+      - "8181:8181"
+    depends_on:
+      - otel-collector
